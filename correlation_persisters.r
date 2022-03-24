@@ -314,6 +314,76 @@ for (i in names){
 names(filtered_res) <- lapply(names, function(x){
   x
 })
+#################################################################################################################################
+
+# Create pseudo gene set that represents persister gene set (similar pct expression)
+
+exp <- FetchData(dat.sub[,dat.sub$timepoint_short=="d15"], true_persister_gene_set_d15)
+average_pct.exp_persister <- colMeans(as.matrix(colMeans(exp  > 0))*100)
+
+exp.vals_for_pseudo <- FetchData(dat.sub[,dat.sub$timepoint_short=="d15"], 
+                                 rownames(dat.sub[,dat.sub$timepoint_short=="d15"])[rownames(dat.sub[,dat.sub$timepoint_short=="d15"]) %!in% 
+                                                                                      true_persister_gene_set_d15])
+pct.exp <- as.matrix(colMeans(exp.vals_for_pseudo  > 0))*100
+pct.exp_filt <- pct.exp[pct.exp>51,]
+random_indices <- floor(runif(length(true_persister_gene_set_d15), min = 0, max = length(pct.exp_filt) + 1))
+pseudo_persister <- pct.exp_filt[random_indices]
+
+pseudo_persister <- names(pseudo_persister)
+
+saveRDS(pseudo_persister, "pseudo_persister_genes.Rds")
+
+
+
+names <- unique(dat.sub$patient_id)
+df1 <- lapply(names, function(x){
+  if (x=="ALL3"){
+    c <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@counts)
+  } else {
+    c <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@counts)
+  }
+  return(c)
+}) 
+
+names(df1) <- lapply(names, function(x){
+  x
+})
+
+for (i in names){
+  df1[[i]] <- df1[[i]][pseudo_persister,]
+}
+
+for (i in names){
+  df1[[i]] <- (df1[[i]][rowSums(df1[[i]])>0,])
+}
+
+gene_list_for_scaled <- lapply(df1, function(x){
+  rownames(x)
+})
+
+df2 <- lapply(names, function(x){
+  if (x=="ALL3"){
+    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@scale.data)
+  } else {
+    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@scale.data)
+  }
+  return(df)
+})
+
+names(df2) <- lapply(names, function(x){
+  x
+})
+
+for (i in names){
+  df2[[i]] <- df2[[i]][gene_list_for_scaled[[i]],]
+}
+
+
+res_pseudo_persister <- lapply(df2, function(x){
+  res <- cor(as.matrix(t(x)), method = "spearman")
+})
+
+saveRDS(res_pseudo_persister, "res_pseudo_persister.Rds")
 
 #################################################################################################################################
 paletteLength <- 100

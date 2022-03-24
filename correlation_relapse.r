@@ -242,6 +242,29 @@ lapply(names(plots), function(x){
          height = 10) 
 })
 
+
+#################################################################################################################################
+# Create pseudo gene set that represents relapse gene set (similar pct expression)
+
+exp <- FetchData(dat.sub[,(dat.sub$timepoint_short=="rel" | dat.sub$timepoint_short=="rel2")], true_persister_gene_set_rel)
+average_pct.exp_rel <- colMeans(as.matrix(colMeans(exp  > 0))*100)
+average_pct.exp_rel
+
+exp.vals_for_pseudo <- FetchData(dat.sub[,(dat.sub$timepoint_short=="rel" | 
+                                             dat.sub$timepoint_short=="rel2")], 
+                                 rownames(dat.sub[,(dat.sub$timepoint_short=="rel" | 
+                                                      dat.sub$timepoint_short=="rel2")])[rownames(dat.sub[,(dat.sub$timepoint_short=="rel" | 
+                                                                                                              dat.sub$timepoint_short=="rel2")]) %!in% true_persister_gene_set_rel])
+pct.exp <- as.matrix(colMeans(exp.vals_for_pseudo  > 0))*100
+pct.exp_filt <- pct.exp[pct.exp>(average_pct.exp_rel-average_pct.exp_rel/4),]
+random_indices <- floor(runif(length(true_persister_gene_set_rel), min = 0, max = length(pct.exp_filt) + 1))
+pseudo_relapse<- pct.exp_filt[random_indices]
+mean(pseudo_relapse)
+
+pseudo_relapse <- names(pseudo_relapse)
+
+saveRDS(names(pseudo_relapse), "pseudo_relapse_genes.Rds")
+
 #################################################################################################################################
 
 # 
