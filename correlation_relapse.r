@@ -246,24 +246,70 @@ lapply(names(plots), function(x){
 #################################################################################################################################
 # Create pseudo gene set that represents relapse gene set (similar pct expression)
 
-exp <- FetchData(dat.sub[,(dat.sub$timepoint_short=="rel" | dat.sub$timepoint_short=="rel2")], true_persister_gene_set_rel)
-average_pct.exp_rel <- colMeans(as.matrix(colMeans(exp  > 0))*100)
-average_pct.exp_rel
+# exp <- FetchData(dat.sub[,(dat.sub$timepoint_short=="rel" | dat.sub$timepoint_short=="rel2")], true_persister_gene_set_rel)
+# average_pct.exp_rel <- colMeans(as.matrix(colMeans(exp  > 0))*100)
+# st_dev.exp_rel <- sd(as.matrix(colMeans(exp >0)*100)[,1])
+# range <- (average_pct.exp_rel - st_dev.exp_rel) : (average_pct.exp_rel + st_dev.exp_rel)
+# 
+# exp.vals_for_pseudo <- FetchData(dat.sub[,(dat.sub$timepoint_short=="rel" | 
+#                                              dat.sub$timepoint_short=="rel2")], 
+#                                  rownames(dat.sub[,(dat.sub$timepoint_short=="rel" | 
+#                                                       dat.sub$timepoint_short=="rel2")])[rownames(dat.sub[,(dat.sub$timepoint_short=="rel" | 
+#                                                                                                               dat.sub$timepoint_short=="rel2")]) %!in% true_persister_gene_set_rel])
+# pct.exp <- as.matrix(colMeans(exp.vals_for_pseudo  > 0))*100
+# pct.exp_filt <- pct.exp[pct.exp>range[1] & pct.exp<range[length(range)],]
+# random_indices <- sample(length(pct.exp_filt) + 1, length(true_persister_gene_set_rel) + 1, replace = F)
+# pseudo_relapse<- pct.exp_filt[random_indices]
+# mean(pseudo_relapse)
+# 
+# pseudo_relapse <- names(pseudo_relapse)
 
-exp.vals_for_pseudo <- FetchData(dat.sub[,(dat.sub$timepoint_short=="rel" | 
-                                             dat.sub$timepoint_short=="rel2")], 
-                                 rownames(dat.sub[,(dat.sub$timepoint_short=="rel" | 
-                                                      dat.sub$timepoint_short=="rel2")])[rownames(dat.sub[,(dat.sub$timepoint_short=="rel" | 
-                                                                                                              dat.sub$timepoint_short=="rel2")]) %!in% true_persister_gene_set_rel])
-pct.exp <- as.matrix(colMeans(exp.vals_for_pseudo  > 0))*100
-pct.exp_filt <- pct.exp[pct.exp>(average_pct.exp_rel-average_pct.exp_rel/4),]
-random_indices <- floor(runif(length(true_persister_gene_set_rel), min = 0, max = length(pct.exp_filt) + 1))
-pseudo_relapse<- pct.exp_filt[random_indices]
-mean(pseudo_relapse)
 
-pseudo_relapse <- names(pseudo_relapse)
+#################################################################################################################################
 
-saveRDS(names(pseudo_relapse), "pseudo_relapse_genes.Rds")
+# Pseudo gene set that represents a relapse-like gene set
+# More accuarate way -- create n bins of all genes expressed where n=length of persister genes. Bins are based on average expression
+# across cells across patients that persister gene set was derived from. 
+
+object <- dat.sub[,(dat.sub$timepoint_short=="rel" | dat.sub$timepoint_short=="rel2")]
+nbin <- length(true_persister_gene_set_rel)
+ctrl <- 10
+pool <- NULL %||% rownames(x = object)
+data.avg <- Matrix::rowMeans(x = GetAssayData(object = object)[pool, ])
+data.avg <- data.avg[order(data.avg)]
+data.cut <- cut_number(x = data.avg + rnorm(n = length(data.avg))/1e30, n = nbin, labels = FALSE, right = FALSE)
+names(x = data.cut) <- names(x = data.avg)
+features.use <- c()
+cluster.length <- nbin
+features.use <- true_persister_gene_set_rel
+ctrl.use <- vector(mode = "list", length = cluster.length)
+for (i in 1:nbin) {
+  for (j in 1:length(x = features.use)) {
+    ctrl.use[[i]] <- c(
+      ctrl.use[[i]],
+      names(x = sample(
+        x = data.cut[which(x = data.cut == data.cut[features.use[j]])],
+        size = ctrl,
+        replace = FALSE
+      ))
+    )
+  }
+}
+
+pseudo_relapse <- c()
+
+for (i in 1:length(true_persister_gene_set_rel)){
+  pseudo_relapse <- c(pseudo_relapse, sample(ctrl.use[[i]], 1))
+}
+
+
+test <- FetchData(object = object, true_persister_gene_set_rel)
+sort(as.matrix(colMeans(test  > 0))*100)
+
+test1 <- FetchData(object, pseudo_relapse)
+sort(as.matrix(colMeans(test1  > 0))*100)
+
+saveRDS(pseudo_relapse, "pseudo_relapse.Rds")
 
 #################################################################################################################################
 

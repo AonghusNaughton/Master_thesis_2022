@@ -85,9 +85,6 @@ relapse_genes_y_coord <- lapply(res_modified, function(x){
 
 # Average correlation of each perister/relapse gene to all other genes in same set
 
-res_relapse <- readRDS("res_relapse.Rds")
-res_persister <- readRDS("res_persister.Rds")
-
 persister_genes_y_coord <- lapply(res_persister, function(x){
   rowMeans(x)
 })
@@ -143,9 +140,272 @@ lapply(names(plots), function(x){
 })
 
 ######################################################################################################################
-# Make a plot for all patients 
+# Same analysis but with pseudo gene sets with similar average pct expression in d15/relapse.
+
+geneSets_pseudo_persister <- unique(c(true_persister_gene_set_d15, pseudo_persister))
+geneSets_pseudo_relapse <- unique(c(true_persister_gene_set_rel, pseudo_relapse))
+
+######################################################################################################################
+# Persister vs pseudo_persister
+dat.sub <- readRDS("dat.sub_wNa_feb22.Rds")
+pids <- unique(dat.sub$patient_id)
+counts <- lapply(pids, function(x){
+  if (x=="ALL3"){
+    c <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@counts)
+  } else {
+    c <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@counts)
+  }
+  return(c)
+})
+
+names(counts) <- lapply(pids, function(x) x)
+
+counts_combined_p.p <- list()
+
+for (i in pids){
+  counts_combined_p.p[[i]] <- counts[[i]][geneSets_pseudo_persister,]
+}
+
+for (i in pids){
+  counts_combined_p.p[[i]] <- (counts_combined_p.p[[i]][rowSums(counts_combined_p.p[[i]])>0,])
+}
+
+gene_list_for_scaled_p.p <- lapply(counts_combined_p.p, function(x){
+  rownames(x)
+})
+
+counts_scale <- lapply(pids, function(x){
+  if (x=="ALL3"){
+    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@scale.data)
+  } else {
+    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@scale.data)
+  }
+  return(df)
+})
+
+names(counts_scale) <- lapply(pids, function(x) x)
+
+counts_combined_scale_p.p <- list()
+
+for (i in pids){
+  counts_combined_scale_p.p[[i]] <- counts_scale[[i]][gene_list_for_scaled_p.p[[i]],]
+}
+
+res_p.p <- lapply(counts_combined_scale_p.p, function(x){
+  res <- cor(as.matrix(t(x)), method = "spearman")
+})
+
+# Modify correlation matrix so that persister genes are on rows and pseudo_persister genes are on columns. 
+
+res_modified_p.p <- lapply(res_p.p, function(x){
+  res <- x[intersect(rownames(x),true_persister_gene_set_d15), intersect(colnames(x), pseudo_persister)]
+})
 
 
+res_modified_persister <- lapply(res_p.p, function(x){
+  res <- x[intersect(rownames(x), true_persister_gene_set_d15), intersect(rownames(x), true_persister_gene_set_d15)]
+})
+
+res_modified_pseudo <- lapply(res_p.p, function(x){
+  res <- x[intersect(colnames(x), pseudo_persister), intersect(colnames(x), pseudo_persister)]
+})
 
 
-  
+# Average correlation of each persister gene to each relapse gene 
+
+persister_genes_x_coord <- lapply(res_modified_p.p, function(x){
+  rowMeans(x)
+})
+
+persister_genes_y_coord <- lapply(res_modified_persister, function(x){
+  rowMeans(x)
+})
+
+
+p.p_genes_y_coord <- lapply(res_modified_p.p, function(x){
+  colMeans(x)
+})
+
+p.p_genes_x_coord <- lapply(res_modified_pseudo, function(x){
+  rowMeans(x)
+})
+
+persister_coordinates <- list()
+
+for (i in pids){
+  persister_coordinates[[i]] <- data.frame(persister_genes_x_coord[[i]], persister_genes_y_coord[[i]], "persister")
+}
+
+names(persister_coordinates) <- lapply(pids, function(x) x)
+
+for (i in pids){
+  colnames(persister_coordinates[[i]]) <- c("x", "y", "geneset")
+}
+
+p.p_coordinates <- list()
+
+for (i in pids){
+  p.p_coordinates[[i]] <- data.frame(p.p_genes_x_coord[[i]], p.p_genes_y_coord[[i]], "pseudo_persister")
+}
+names(p.p_coordinates) <- lapply(pids, function(x) x)
+
+for (i in pids){
+  colnames(p.p_coordinates[[i]]) <- c("x", "y", "geneset")
+}
+
+combined <- list()
+
+for (i in pids){
+  combined[[i]] <- rbind(persister_coordinates[[i]], (p.p_coordinates[[i]]))
+}
+
+plots <- lapply(combined, function(i){
+  ggplot(i, aes(x,y, color=geneset)) +
+    geom_point() + 
+    xlab("Average correlation with pseudo persister genes") +
+    ylab("Average correlation with persister genes") +
+    ylim(-0.1,0.1) +
+    xlim(-0.1,0.1)
+})
+
+lapply(names(plots), function(x){
+  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/March22/Average_correlations/pseudo_addMod/persister/", x, "_pseudo_persister.pdf", sep = ""), 
+         plot = plots[[x]]) 
+})
+
+plots
+######################################################################################################################
+# Relapse vs Pseudo relapse
+
+dat.sub <- readRDS("dat.sub_wNa_feb22.Rds")
+pids <- unique(dat.sub$patient_id)
+counts <- lapply(pids, function(x){
+  if (x=="ALL3"){
+    c <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@counts)
+  } else {
+    c <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@counts)
+  }
+  return(c)
+})
+
+names(counts) <- lapply(pids, function(x) x)
+
+counts_combined_p.r <- list()
+
+for (i in pids){
+  counts_combined_p.r[[i]] <- counts[[i]][geneSets_pseudo_relapse,]
+}
+
+for (i in pids){
+  counts_combined_p.r[[i]] <- (counts_combined_p.r[[i]][rowSums(counts_combined_p.r[[i]])>0,])
+}
+
+gene_list_for_scaled_p.r <- lapply(counts_combined_p.r, function(x){
+  rownames(x)
+})
+
+counts_scale <- lapply(pids, function(x){
+  if (x=="ALL3"){
+    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@scale.data)
+  } else {
+    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@scale.data)
+  }
+  return(df)
+})
+
+names(counts_scale) <- lapply(pids, function(x) x)
+
+counts_combined_scale_p.r <- list()
+
+for (i in pids){
+  counts_combined_scale_p.r[[i]] <- counts_scale[[i]][gene_list_for_scaled_p.r[[i]],]
+}
+
+res_p.r <- lapply(counts_combined_scale_p.r, function(x){
+  res <- cor(as.matrix(t(x)), method = "spearman")
+})
+
+# Modify correlation matrix so that relapse genes are on rows and pseudo_relapse genes are on columns. 
+
+res_modified_p.r <- lapply(res_p.r, function(x){
+  res <- x[intersect(rownames(x),true_persister_gene_set_rel), intersect(colnames(x), pseudo_relapse)]
+})
+
+
+res_modified_relapse <- lapply(res_p.r, function(x){
+  res <- x[intersect(rownames(x), true_persister_gene_set_rel), intersect(rownames(x), true_persister_gene_set_rel)]
+})
+
+res_modified_pseudo <- lapply(res_p.r, function(x){
+  res <- x[intersect(colnames(x), pseudo_relapse), intersect(colnames(x), pseudo_relapse)]
+})
+
+
+# Average correlation of each relapse gene to each relapse gene 
+
+relapse_genes_x_coord <- lapply(res_modified_p.r, function(x){
+  rowMeans(x)
+})
+
+relapse_genes_y_coord <- lapply(res_modified_relapse, function(x){
+  rowMeans(x)
+})
+
+
+p.r_genes_y_coord <- lapply(res_modified_p.r, function(x){
+  colMeans(x)
+})
+
+p.r_genes_x_coord <- lapply(res_modified_pseudo, function(x){
+  rowMeans(x)
+})
+
+relapse_coordinates <- list()
+
+for (i in pids){
+  relapse_coordinates[[i]] <- data.frame(relapse_genes_x_coord[[i]], relapse_genes_y_coord[[i]], "relapse")
+}
+
+names(relapse_coordinates) <- lapply(pids, function(x) x)
+
+for (i in pids){
+  colnames(relapse_coordinates[[i]]) <- c("x", "y", "geneset")
+}
+
+p.r_coordinates <- list()
+
+for (i in pids){
+  p.r_coordinates[[i]] <- data.frame(p.r_genes_x_coord[[i]], p.r_genes_y_coord[[i]], "pseudo_relapse")
+}
+names(p.r_coordinates) <- lapply(pids, function(x) x)
+
+for (i in pids){
+  colnames(p.r_coordinates[[i]]) <- c("x", "y", "geneset")
+}
+
+combined <- list()
+
+for (i in pids){
+  combined[[i]] <- rbind(relapse_coordinates[[i]], (p.r_coordinates[[i]]))
+}
+
+plots <- lapply(combined, function(i){
+  ggplot(i, aes(x,y, color=geneset)) +
+    geom_point() + 
+    xlab("Average correlation with pseudo relapse genes") +
+    ylab("Average correlation with relapse genes") +
+    ylim(-0.1,0.1) +
+    xlim(-0.1,0.1)
+})
+
+lapply(names(plots), function(x){
+  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/March22/Average_correlations/pseudo_addMod/relapse/", x, "_pseudo_relapse.pdf", sep = ""), 
+         plot = plots[[x]]) 
+})
+
+
+plots
+
+######################################################################################################################
+
+

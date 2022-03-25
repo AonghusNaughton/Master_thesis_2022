@@ -1,4 +1,4 @@
-load("~/Proj_eng/ALL_data_Feb22.Rda")
+load("ALL_data_Feb22.Rda")
 dat.sub <- readRDS("dat.sub_wNa_feb22.Rds")
 source("general.r")
 library(pheatmap)
@@ -318,74 +318,67 @@ names(filtered_res) <- lapply(names, function(x){
 
 # Create pseudo gene set that represents persister gene set (similar pct expression)
 
-exp <- FetchData(dat.sub[,dat.sub$timepoint_short=="d15"], true_persister_gene_set_d15)
-average_pct.exp_persister <- colMeans(as.matrix(colMeans(exp  > 0))*100)
+# exp <- FetchData(dat.sub[,dat.sub$timepoint_short=="d15"], true_persister_gene_set_d15)
+# average_pct.exp_persister <- colMeans(as.matrix(colMeans(exp  > 0))*100)
+# st_dev.exp_persister <- sd(as.matrix(colMeans(exp >0)*100)[,1])
+# range <- (average_pct.exp_persister - st_dev.exp_persister) : (average_pct.exp_persister + st_dev.exp_persister)
+# 
+# exp.vals_for_pseudo <- FetchData(dat.sub[,dat.sub$timepoint_short=="d15"], 
+#                                  rownames(dat.sub[,dat.sub$timepoint_short=="d15"])[rownames(dat.sub[,dat.sub$timepoint_short=="d15"]) %!in% 
+#                                                                                       true_persister_gene_set_d15])
+# pct.exp <- as.matrix(colMeans(exp.vals_for_pseudo  > 0))*100
+# pct.exp_filt <- pct.exp[pct.exp>range[1] & pct.exp<range[length(range)],]
+# random_indices <- sample(length(pct.exp_filt) + 1, length(true_persister_gene_set_d15) + 1, replace = F)
+# pseudo_persister <- pct.exp_filt[random_indices]
+# 
+# pseudo_persister <- names(pseudo_persister)
 
-exp.vals_for_pseudo <- FetchData(dat.sub[,dat.sub$timepoint_short=="d15"], 
-                                 rownames(dat.sub[,dat.sub$timepoint_short=="d15"])[rownames(dat.sub[,dat.sub$timepoint_short=="d15"]) %!in% 
-                                                                                      true_persister_gene_set_d15])
-pct.exp <- as.matrix(colMeans(exp.vals_for_pseudo  > 0))*100
-pct.exp_filt <- pct.exp[pct.exp>51,]
-random_indices <- floor(runif(length(true_persister_gene_set_d15), min = 0, max = length(pct.exp_filt) + 1))
-pseudo_persister <- pct.exp_filt[random_indices]
-
-pseudo_persister <- names(pseudo_persister)
-
-saveRDS(pseudo_persister, "pseudo_persister_genes.Rds")
-
-
-
-names <- unique(dat.sub$patient_id)
-df1 <- lapply(names, function(x){
-  if (x=="ALL3"){
-    c <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@counts)
-  } else {
-    c <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@counts)
-  }
-  return(c)
-}) 
-
-names(df1) <- lapply(names, function(x){
-  x
-})
-
-for (i in names){
-  df1[[i]] <- df1[[i]][pseudo_persister,]
-}
-
-for (i in names){
-  df1[[i]] <- (df1[[i]][rowSums(df1[[i]])>0,])
-}
-
-gene_list_for_scaled <- lapply(df1, function(x){
-  rownames(x)
-})
-
-df2 <- lapply(names, function(x){
-  if (x=="ALL3"){
-    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@scale.data)
-  } else {
-    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@scale.data)
-  }
-  return(df)
-})
-
-names(df2) <- lapply(names, function(x){
-  x
-})
-
-for (i in names){
-  df2[[i]] <- df2[[i]][gene_list_for_scaled[[i]],]
-}
-
-
-res_pseudo_persister <- lapply(df2, function(x){
-  res <- cor(as.matrix(t(x)), method = "spearman")
-})
-
-saveRDS(res_pseudo_persister, "res_pseudo_persister.Rds")
 
 #################################################################################################################################
+
+# Pseudo gene set that represents a persister-like gene set. 
+# More accuarate way -- create n bins of all genes expressed where n=length of persister genes. Bins are based on average expression
+# across cells across patients that persister gene set was derived from. 
+
+object <- dat.sub[,dat.sub$timepoint_short=="d15"]
+nbin <- length(true_persister_gene_set_d15)
+ctrl = 10
+pool <- NULL %||% rownames(x = object)
+data.avg <- Matrix::rowMeans(x = GetAssayData(object = object)[pool, ])
+data.avg <- data.avg[order(data.avg)]
+data.cut <- cut_number(x = data.avg + rnorm(n = length(data.avg))/1e30, n = nbin, labels = FALSE, right = FALSE)
+names(x = data.cut) <- names(x = data.avg)
+ctrl.use <- vector(mode = "list", length = nbin)
+features.use <- true_persister_gene_set_rel
+for (i in 1:nbin) {
+  for (j in 1:length(x = features.use)) {
+    ctrl.use[[i]] <- c(
+      ctrl.use[[i]],
+      names(x = sample(
+        x = data.cut[which(x = data.cut == data.cut[features.use[j]])],
+        size = ctrl,
+        replace = FALSE
+      ))
+    )
+  }
+}
+
+pseudo_persister <- c()
+
+for (i in 1:length(true_persister_gene_set_d15)){
+  pseudo_persister <- c(pseudo_persister, sample(ctrl.use[[i]], 1))
+}
+
+test <- FetchData(object = object, true_persister_gene_set_d15)
+sort(as.matrix(colMeans(test  > 0))*100)
+test1 <- FetchData(object, pseudo_persister)
+sort(as.matrix(colMeans(test1  > 0))*100)
+
+saveRDS(pseudo_persister, "pseudo_persister.Rds")
+
+
+#################################################################################################################################
+
 paletteLength <- 100
 plots <- lapply(res_persister, function(x){
   pheatmap(as.matrix(x), cluster_rows = T, cluster_cols = T, 
@@ -442,105 +435,105 @@ df2 <- as.data.frame(do.call(cbind, df))
 
 # Module scores for diagnostic samples (to each patient individually and then as cohort) - UCell 
 
-dat.sub <- dat[, (dat$dna_cell_type=="blasts" | is.na(dat$dna_cell_type)) & 
-                 dat$rna_cell_type=="blasts" & 
-                 dat$patient_id=="ALL3" & 
-                 dat$cell_phase=="G1"]
-
-split1 <- split(sc3_split$ALL3.d0$cell_id, sc3_split$ALL3.d0$sc3_2_clusters)
-# split2 <- split(sc3_ALL71_d0_split_wNa$cell_id, sc3_ALL71_d0_split_wNa$sc3_4_clusters)
-split1.rel <- split(sc3_split_wNa$ALL3.rel$cell_id, sc3_split_wNa$ALL3.rel$sc3_5_clusters)
-split1.rel2 <- split(sc3_split$ALL3.rel2$cell_id, sc3_split$ALL3.rel2$sc3_5_clusters)
-
-annot <- dat.sub@meta.data %>%
-  mutate(sc3_clusters_to_compare=case_when(cell_id %in% split1$`1` ~ 1,
-                                           cell_id %in% split1$`2` ~ 2,
-                                           cell_id %in% split1.rel$`1` ~ 3,
-                                           cell_id %in% split1.rel$`2` ~ 4,
-                                           cell_id %in% split1.rel$`3` ~ 5,
-                                           cell_id %in% split1.rel$`4` ~ 6,
-                                           cell_id %in% split1.rel$`5` ~ 7,
-                                           cell_id %in% split1.rel2$`1` ~ 8,
-                                           cell_id %in% split1.rel2$`2`~ 9,
-                                           cell_id %in% split1.rel2$`3`~ 10,
-                                           cell_id %in% split1.rel2$`4`~ 11,
-                                           cell_id %in% split1.rel2$`5`~ 12))
-dat.sub <- AddMetaData(dat.sub, annot)
-dat.sub <- AddModuleScore_UCell(dat.sub, features = list(true_persister_gene_set_d15))
-
-colnames(dat.sub@meta.data)[(ncol(dat.sub@meta.data)-length(list(true_persister_gene_set_d15))+1):ncol(dat.sub@meta.data)] <- "d15_persister_gene_score"
-
-dat.sub <- dat.sub[, dat.sub$sc3_clusters_to_compare %in% c(1:12)]
-
-d15.score <- tibble(dat.sub$d15_persister_gene_score, dat.sub$sc3_clusters_to_compare, dat.sub$timepoint, dat.sub$dna_best_class)
-bcell.score <- tibble(dat.sub$bcell_score, dat.sub$sc3_clusters_to_compare, dat.sub$timepoint, dat.sub$dna_best_class)
-
-plt_d15.scores.sc3 <- d15.score %>%
-  ggplot(aes(x=dat.sub$sc3_clusters_to_compare, 
-             y=dat.sub$d15_persister_gene_score, 
-             fill=as.factor(dat.sub$sc3_clusters_to_compare),
-             colour=factor(dat.sub$timepoint, levels = c("diagnosis", "relapse 1", "relapse 2")))) +
-  stat_boxplot(geom = 'errorbar', width= 0.6)+
-  geom_boxplot(width = 0.6) +
-  expand_limits(y = 0) + 
-  theme_classic() +
-  scale_fill_discrete(name = "SC3 cluster") +
-  scale_color_discrete(name = "Timepoint") +
-  ylab("Persister score") + xlab(NULL) +
-  theme(legend.position = "right",
-        axis.title.x=element_blank(),
-        axis.text.x=element_blank(),
-        axis.ticks.x=element_blank()) +
-  ylim(0.1, 0.28)
-
-plt_d15.scores.clone <- d15.score %>%
-  ggplot(aes(x=dat.sub$dna_best_class, 
-             y=dat.sub$d15_persister_gene_score, 
-             fill=as.factor(dat.sub$dna_best_class),
-             colour=factor(dat.sub$timepoint, levels = c("diagnosis", "relapse 1", "relapse 2")))) +
-  stat_boxplot(geom = 'errorbar', width= 0.6)+
-  geom_boxplot(width = 0.6) +
-  expand_limits(y = 0) + 
-  theme_classic() +
-  scale_fill_discrete(name = "Clone") +
-  scale_color_discrete(name = "Timepoint") +
-  ylab("Persister score") + xlab(NULL) +
-  theme(legend.position = "right",
-        axis.title.x=element_blank(),
-        axis.text.x=element_blank(),
-        axis.ticks.x=element_blank()) + 
-  ylim(0.1, 0.28)
-
-plt_bcell.scores.sc3 <- bcell.score %>%
-  ggplot(aes(x=dat.sub$sc3_clusters_to_compare, 
-             y=dat.sub$bcell_score, 
-             fill=as.factor(dat.sub$sc3_clusters_to_compare),
-             colour=factor(dat.sub$timepoint, levels = c("diagnosis", "relapse 1", "relapse 2")))) +
-  stat_boxplot(geom = 'errorbar', width= 0.6)+
-  geom_boxplot(width = 0.6) +
-  expand_limits(y = 0) + 
-  theme_classic() +
-  scale_fill_discrete(name = "SC3 cluster") +
-  scale_color_discrete(name = "Timepoint") +
-  ylab("B-cell score") + xlab(NULL) +
-  theme(legend.position = "right")
-
-plt_bcell.scores.clone <- bcell.score %>%
-  ggplot(aes(x=dat.sub$dna_best_class, 
-             y=dat.sub$bcell_score, 
-             fill=as.factor(dat.sub$dna_best_class),
-             colour=factor(dat.sub$timepoint, levels = c("diagnosis", "relapse 1", "relapse 2")))) +
-  stat_boxplot(geom = 'errorbar', width= 0.6)+
-  geom_boxplot(width = 0.6) +
-  expand_limits(y = 0) + 
-  theme_classic() +
-  scale_fill_discrete(name = "Clone") +
-  scale_color_discrete(name = "Timepoint") +
-  ylab("B-cell score") + xlab(NULL) +
-  theme(legend.position = "right",
-        axis.title.x=element_blank(),
-        axis.text.x=element_blank(),
-        axis.ticks.x=element_blank())
-
-
-# this is a test 
+# dat.sub <- dat[, (dat$dna_cell_type=="blasts" | is.na(dat$dna_cell_type)) & 
+#                  dat$rna_cell_type=="blasts" & 
+#                  dat$patient_id=="ALL3" & 
+#                  dat$cell_phase=="G1"]
+# 
+# split1 <- split(sc3_split$ALL3.d0$cell_id, sc3_split$ALL3.d0$sc3_2_clusters)
+# # split2 <- split(sc3_ALL71_d0_split_wNa$cell_id, sc3_ALL71_d0_split_wNa$sc3_4_clusters)
+# split1.rel <- split(sc3_split_wNa$ALL3.rel$cell_id, sc3_split_wNa$ALL3.rel$sc3_5_clusters)
+# split1.rel2 <- split(sc3_split$ALL3.rel2$cell_id, sc3_split$ALL3.rel2$sc3_5_clusters)
+# 
+# annot <- dat.sub@meta.data %>%
+#   mutate(sc3_clusters_to_compare=case_when(cell_id %in% split1$`1` ~ 1,
+#                                            cell_id %in% split1$`2` ~ 2,
+#                                            cell_id %in% split1.rel$`1` ~ 3,
+#                                            cell_id %in% split1.rel$`2` ~ 4,
+#                                            cell_id %in% split1.rel$`3` ~ 5,
+#                                            cell_id %in% split1.rel$`4` ~ 6,
+#                                            cell_id %in% split1.rel$`5` ~ 7,
+#                                            cell_id %in% split1.rel2$`1` ~ 8,
+#                                            cell_id %in% split1.rel2$`2`~ 9,
+#                                            cell_id %in% split1.rel2$`3`~ 10,
+#                                            cell_id %in% split1.rel2$`4`~ 11,
+#                                            cell_id %in% split1.rel2$`5`~ 12))
+# dat.sub <- AddMetaData(dat.sub, annot)
+# dat.sub <- AddModuleScore_UCell(dat.sub, features = list(true_persister_gene_set_d15))
+# 
+# colnames(dat.sub@meta.data)[(ncol(dat.sub@meta.data)-length(list(true_persister_gene_set_d15))+1):ncol(dat.sub@meta.data)] <- "d15_persister_gene_score"
+# 
+# dat.sub <- dat.sub[, dat.sub$sc3_clusters_to_compare %in% c(1:12)]
+# 
+# d15.score <- tibble(dat.sub$d15_persister_gene_score, dat.sub$sc3_clusters_to_compare, dat.sub$timepoint, dat.sub$dna_best_class)
+# bcell.score <- tibble(dat.sub$bcell_score, dat.sub$sc3_clusters_to_compare, dat.sub$timepoint, dat.sub$dna_best_class)
+# 
+# plt_d15.scores.sc3 <- d15.score %>%
+#   ggplot(aes(x=dat.sub$sc3_clusters_to_compare, 
+#              y=dat.sub$d15_persister_gene_score, 
+#              fill=as.factor(dat.sub$sc3_clusters_to_compare),
+#              colour=factor(dat.sub$timepoint, levels = c("diagnosis", "relapse 1", "relapse 2")))) +
+#   stat_boxplot(geom = 'errorbar', width= 0.6)+
+#   geom_boxplot(width = 0.6) +
+#   expand_limits(y = 0) + 
+#   theme_classic() +
+#   scale_fill_discrete(name = "SC3 cluster") +
+#   scale_color_discrete(name = "Timepoint") +
+#   ylab("Persister score") + xlab(NULL) +
+#   theme(legend.position = "right",
+#         axis.title.x=element_blank(),
+#         axis.text.x=element_blank(),
+#         axis.ticks.x=element_blank()) +
+#   ylim(0.1, 0.28)
+# 
+# plt_d15.scores.clone <- d15.score %>%
+#   ggplot(aes(x=dat.sub$dna_best_class, 
+#              y=dat.sub$d15_persister_gene_score, 
+#              fill=as.factor(dat.sub$dna_best_class),
+#              colour=factor(dat.sub$timepoint, levels = c("diagnosis", "relapse 1", "relapse 2")))) +
+#   stat_boxplot(geom = 'errorbar', width= 0.6)+
+#   geom_boxplot(width = 0.6) +
+#   expand_limits(y = 0) + 
+#   theme_classic() +
+#   scale_fill_discrete(name = "Clone") +
+#   scale_color_discrete(name = "Timepoint") +
+#   ylab("Persister score") + xlab(NULL) +
+#   theme(legend.position = "right",
+#         axis.title.x=element_blank(),
+#         axis.text.x=element_blank(),
+#         axis.ticks.x=element_blank()) + 
+#   ylim(0.1, 0.28)
+# 
+# plt_bcell.scores.sc3 <- bcell.score %>%
+#   ggplot(aes(x=dat.sub$sc3_clusters_to_compare, 
+#              y=dat.sub$bcell_score, 
+#              fill=as.factor(dat.sub$sc3_clusters_to_compare),
+#              colour=factor(dat.sub$timepoint, levels = c("diagnosis", "relapse 1", "relapse 2")))) +
+#   stat_boxplot(geom = 'errorbar', width= 0.6)+
+#   geom_boxplot(width = 0.6) +
+#   expand_limits(y = 0) + 
+#   theme_classic() +
+#   scale_fill_discrete(name = "SC3 cluster") +
+#   scale_color_discrete(name = "Timepoint") +
+#   ylab("B-cell score") + xlab(NULL) +
+#   theme(legend.position = "right")
+# 
+# plt_bcell.scores.clone <- bcell.score %>%
+#   ggplot(aes(x=dat.sub$dna_best_class, 
+#              y=dat.sub$bcell_score, 
+#              fill=as.factor(dat.sub$dna_best_class),
+#              colour=factor(dat.sub$timepoint, levels = c("diagnosis", "relapse 1", "relapse 2")))) +
+#   stat_boxplot(geom = 'errorbar', width= 0.6)+
+#   geom_boxplot(width = 0.6) +
+#   expand_limits(y = 0) + 
+#   theme_classic() +
+#   scale_fill_discrete(name = "Clone") +
+#   scale_color_discrete(name = "Timepoint") +
+#   ylab("B-cell score") + xlab(NULL) +
+#   theme(legend.position = "right",
+#         axis.title.x=element_blank(),
+#         axis.text.x=element_blank(),
+#         axis.ticks.x=element_blank())
+# 
+# 
+# # this is a test 
