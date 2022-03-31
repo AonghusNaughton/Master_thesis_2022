@@ -339,7 +339,7 @@ names(filtered_res) <- lapply(names, function(x){
 # Pseudo gene set that represents a persister-like gene set. 
 # More accuarate way -- create n bins of all genes expressed where n=length of persister genes. Bins are based on average expression
 # across cells across patients that persister gene set was derived from. 
-
+dat.sub <- readRDS("dat.sub_wNa_feb22.Rds")
 object <- dat.sub[,dat.sub$timepoint_short=="d15"]
 nbin <- length(true_persister_gene_set_d15)
 ctrl = 10
@@ -349,7 +349,7 @@ data.avg <- data.avg[order(data.avg)]
 data.cut <- cut_number(x = data.avg + rnorm(n = length(data.avg))/1e30, n = nbin, labels = FALSE, right = FALSE)
 names(x = data.cut) <- names(x = data.avg)
 ctrl.use <- vector(mode = "list", length = nbin)
-features.use <- true_persister_gene_set_rel
+features.use <- true_persister_gene_set_d15
 for (i in 1:nbin) {
   for (j in 1:length(x = features.use)) {
     ctrl.use[[i]] <- c(

@@ -1,20 +1,26 @@
-# correlations
-library(tidyverse)
+# Downsample dat.sub to remove effect of gene dropouts 
 load("ALL_data_Feb22.Rda")
+library(Seurat)
 dat.sub <- readRDS("dat.sub_wNa_feb22.Rds")
-true_persister_gene_set_rel <- readRDS("true_persister_gene_set_rel_new1.Rds")
-true_persister_gene_set_d15 <- readRDS("true_persister_gene_set_d15_new1.Rds")
 dat.sub <- dat.sub[,dat.sub$cell_phase=="G1" & dat.sub$timepoint=="diagnosis"]
-pseudo_persister <- readRDS("pseudo_persister.Rds")
+
+counts = as.matrix(x = GetAssayData(object =dat.sub, assay = "RNA", slot = "counts"))
+downsampled = SampleUMI(data = counts, max.umi = 30000)
+
+dat.sub_for_downsample <- dat.sub
+dat.sub_for_downsample@assays$RNA@counts <- downsampled
+# dat.sub_for_downsample@assays$RNA@scale.data <- 
+dat.sub_for_downsample <- ScaleData(dat.sub_for_downsample,rownames(dat.sub_for_downsample))
+
 geneSets <- unique(c(true_persister_gene_set_d15, true_persister_gene_set_rel, pseudo_persister, pseudo_relapse))
 
-names <- unique(dat.sub$patient_id)
+names <- unique(dat.sub_for_downsample$patient_id) 
 
 df1 <- lapply(names, function(x){
   if (x=="ALL3"){
-    c <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@counts)
+    c <- as.data.frame(dat.sub_for_downsample[,dat.sub_for_downsample$patient_id==x & dat.sub_for_downsample$dna_cell_type=="blasts" & dat.sub_for_downsample$rna_cell_type=="blasts"]@assays$RNA@counts)
   } else {
-    c <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@counts)
+    c <- as.data.frame(dat.sub_for_downsample[,dat.sub_for_downsample$patient_id==x]@assays$RNA@counts)
   }
   return(c)
 }) 
@@ -37,12 +43,13 @@ gene_list_for_scaled <- lapply(df1, function(x){
 
 df2 <- lapply(names, function(x){
   if (x=="ALL3"){
-    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@scale.data)
+    df <- as.data.frame(dat.sub_for_downsample[,dat.sub_for_downsample$patient_id==x & dat.sub_for_downsample$dna_cell_type=="blasts" & dat.sub_for_downsample$rna_cell_type=="blasts"]@assays$RNA@scale.data)
   } else {
-    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@scale.data)
+    df <- as.data.frame(dat.sub_for_downsample[,dat.sub_for_downsample$patient_id==x]@assays$RNA@scale.data)
   }
   return(df)
 })
+
 
 names(df2) <- lapply(names, function(x){
   x
@@ -57,7 +64,6 @@ res <- lapply(df2, function(x){
   res <- cor(as.matrix(t(x)), method = "spearman")
 })
 
-# saveRDS(res, "cor_res_combined.Rds")
 
 ######################################################################################################################
 
@@ -162,11 +168,12 @@ plots <- lapply(combined, function(i){
 })
 
 lapply(names(plots), function(x){
-  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/March22/Average_correlations/persister_vs_rel/", x, ".pdf", sep = ""),
+  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/March22/Average_correlations/Persister_vs_Relapse/", x, "_downsampled.pdf", sep = ""),
          plot = plots[[x]],
          width = 8,
          height = 5)
 })
+
 
 ######################################################################################################################
 # pseudo 
@@ -186,7 +193,7 @@ relapse_x_coord <- lapply(pseudo_rel_mix, function(x){
 relapse_y_coord <- lapply(res_rel, function(x){
   colMeans(x)
 })
- 
+
 pseudo_persister_x_coord <- lapply(pseudo_persister_only, function(x){
   rowMeans(x)
 })
@@ -242,7 +249,7 @@ plots <- lapply(combined, function(i){
 })
 
 for (i in names(plots)){
-  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/March22/Average_correlations/pseudo/persister/", i, ".pdf", sep = ""),
+  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/March22/Average_correlations/pseudo/persister/", i, "downsampled.pdf", sep = ""),
          plot = plots[[i]],
          width = 8,
          height = 5)
@@ -287,105 +294,8 @@ plots <- lapply(combined, function(i){
 })
 
 for (i in names(plots)){
-  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/March22/Average_correlations/pseudo/relapse/", i, ".pdf", sep = ""),
+  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/March22/Average_correlations/pseudo/relapse/", i, "downsampled.pdf", sep = ""),
          plot = plots[[i]],
          width = 8,
-         height = 5)
-}
-######################################################################################################################
-
-# To address internal correlation structures 
-# Peristers 
-
-all.combos <- list()
-for (i in names){
-  all.combos[[i]] <- res_per[[i]] %>%
-         as.table() %>% as.data.frame() %>%
-         subset(Var1 != Var2)  %>%
-    mutate(combined=paste(Var1, Var2, sep = "."))
-}
-names(all.combos) <- lapply(names, function(x) x)
-
-cmb <- combn(c(1:length(unique(dat.sub$patient_id))), 2)
-
-
-df_for_plot <- apply(cmb, 2, function(i){
-  x <- all.combos[[i[1]]]
-  y <- all.combos[[i[2]]]
-  common <- intersect(x$combined, y$combined)
-  df <- data.frame(x[x$combined %in% common,], y[y$combined %in% common,])
-  df <- df[, c("Freq", "Freq.1", "combined")]
-  return(df)
-})
-
-names(df_for_plot) <- apply(cmb, 2, function(x){
-  paste(names[x[1]], names[x[2]], sep = ".")
-})
-  
-plots <- lapply(names(df_for_plot), function(x){
-  a <- gsub("\\..*", "", x)
-  b <- gsub(".*\\.", "", x)
-  ggplot(df_for_plot[[x]], aes(Freq, Freq.1, color=combined)) +
-    geom_point() +
-    geom_smooth(method = lm, se=FALSE, col='red', size=2) +
-    xlab(paste("Gene pair correlations in ", a, sep = "")) +
-    ylab(paste("Gene pair correlations in ", b, sep = "")) +
-    theme(legend.position = "none")
-})
-
-names(plots) <- lapply(names(df_for_plot), function(x) x)
-
-for (i in names(plots)){
-  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/March22/correlation_structure/persister/", i, ".pdf", sep = ""),
-         plot = plots[[i]],
-         width = 8,
-         height = 5)
-}
-
-
-######################################################################################################################
-# Relapse
-rel_genes.combos <- list()
-for (i in names){
-  rel_genes.combos[[i]] <- res_rel[[i]] %>%
-    as.table() %>% as.data.frame() %>%
-    subset(Var1 != Var2)  %>%
-    mutate(combined=paste(Var1, Var2, sep = "."))
-}
-names(rel_genes.combos) <- lapply(names, function(x) x)
-
-cmb <- combn(c(1:length(unique(dat.sub$patient_id))), 2)
-
-
-df_for_plot <- apply(cmb, 2, function(i){
-  x <- rel_genes.combos[[i[1]]]
-  y <- rel_genes.combos[[i[2]]]
-  common <- intersect(x$combined, y$combined)
-  df <- data.frame(x[x$combined %in% common,], y[y$combined %in% common,])
-  df <- df[, c("Freq", "Freq.1", "combined")]
-  return(df)
-})
-
-names(df_for_plot) <- apply(cmb, 2, function(x){
-  paste(names[x[1]], names[x[2]], sep = ".")
-})
-
-plots <- lapply(names(df_for_plot), function(x){
-  a <- gsub("\\..*", "", x)
-  b <- gsub(".*\\.", "", x)
-  ggplot(df_for_plot[[x]], aes(Freq, Freq.1, color=combined)) +
-    geom_point() +
-    geom_smooth(method = lm, se=FALSE, col='red', size=2) +
-    xlab(paste("Gene pair correlations in ", a, sep = "")) +
-    ylab(paste("Gene pair correlations in ", b, sep = "")) +
-    theme(legend.position = "none")
-})
-
-names(plots) <- lapply(names(df_for_plot), function(x) x)
-
-for (i in names(plots)){
-  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/March22/correlation_structure/relapse/", i, ".pdf", sep = ""),
-         plot = plots[[i]],
-         witdh = 8,
          height = 5)
 }
