@@ -53,6 +53,7 @@ res <- lapply(df2, function(x){
   res <- cor(as.matrix(t(x)), method = "spearman")
 })
 
+saveRDS(res, "correlation_matrix.Rds")
 
 # Correlation matrices for all combinations of gene sets
 
@@ -120,70 +121,123 @@ lapply(names(plots), function(x){
 
 ######################################################################################################################
 
-# Average correlation of itself to persister genes 
-Immature_genes_x_coord <- lapply(res_Immature.Relapse, function(x){
-  rowMeans(x)
-})
+y <- "Immature"
+x <- "Relapse"
 
-# Average correlation of itself to genes in same set 
-Immature_genes_y_coord <- lapply(res_Immature, function(x){
-  rowMeans(x)
-})
+# Average correlation of y-axis genes to x-axis genes 
+assign(paste0(y, "_genes_x_coord"), lapply(eval(parse(text=paste0("res_list[['res_", y, ".", x, "']]"))), function(i){
+  rowMeans(i)
+}))
 
-# Average correlation of itself to genes in same set 
-Relapse_genes_x_coord <- lapply(res_Relapse, function(x){
-  rowMeans(x)
-})
+# Average correlation of y-axis genes to y-axis genes 
+assign(paste0(y, "_genes_y_coord"), lapply(eval(parse(text=paste0("res_list[['res_", y,"']]"))), function(i){
+  rowMeans(i)
+}))
 
-# Average correlation of itself to ImImmature b-cell genes 
-Relapse_genes_y_coord <- lapply(res_Immature.Relapse, function(x){
-  colMeans(x)
-})
+
+# Average correlation of x-axis genes x-axis genes 
+assign(paste0(x, "_genes_x_coord"), lapply(eval(parse(text = paste0("res_list[['res_", x, "']]"))), function(i){
+  rowMeans(i)
+}))
+
+# Average correlation of x-axis genes to y-axis genes 
+assign(paste0(x, "_genes_y_coord"), lapply(eval(parse(text = paste0("res_list[['res_", y, ".", x, "']]"))), function(i){
+  colMeans(i)
+}))
+
 
 ######################################################################################################################
+
 # Create data structure that holds x and y coordinates for each gene and plot as points on a coordinate plane.
 
-Immature_coordinates <- list()
+
+y_gene_coordinates <- vector(mode = "list", length = length(names))
+names(y_gene_coordinates) <- lapply(names, function(x) x)
 
 for (i in names){
-  Immature_coordinates[[i]] <- data.frame(Immature_genes_x_coord[[i]], Immature_genes_y_coord[[i]], "Immature")
+  y_gene_coordinates[[i]] <- data.frame(eval(parse(text = paste0(y, "_genes_x_coord")))[[i]], 
+                    eval(parse(text = paste0(y, "_genes_y_coord")))[[i]], 
+                    y)
+} 
+
+for (i in names){
+  colnames(y_gene_coordinates[[i]]) <- c("x", "y", "geneset")
 }
 
-names(Immature_coordinates) <- lapply(names, function(x) x)
+x_gene_coordinates <- vector(mode = "list", length = length(names))
 
 for (i in names){
-  colnames(Immature_coordinates[[i]]) <- c("x", "y", "geneset")
-}
-
-Relapse_coordinates <- list()
-
-for (i in names){
-  Relapse_coordinates[[i]] <- data.frame(Relapse_genes_x_coord[[i]], Relapse_genes_y_coord[[i]], "Relapse")
-}
-names(Relapse_coordinates) <- lapply(names, function(x) x)
+  x_gene_coordinates[[i]] <- data.frame(eval(parse(text = paste0(x, "_genes_x_coord")))[[i]], 
+                                        eval(parse(text = paste0(x, "_genes_y_coord")))[[i]], 
+                                        x)
+} 
 
 for (i in names){
-  colnames(Relapse_coordinates[[i]]) <- c("x", "y", "geneset")
+  colnames(x_gene_coordinates[[i]]) <- c("x", "y", "geneset")
 }
 
 combined <- list()
 
 for (i in names){
-  combined[[i]] <- rbind(Immature_coordinates[[i]], (Relapse_coordinates[[i]]))
+  combined[[i]] <- rbind(x_gene_coordinates[[i]], (y_gene_coordinates[[i]]))
 }
 
 plots <- lapply(combined, function(i){
   ggplot(i, aes(x,y, color=geneset)) +
     geom_point() + 
-    xlab("Average correlation with Relapse genes") +
-    ylab("Average correlation with Immature genes") +
+    xlab(paste0("Average correlation with ", x, " genes")) +
+    ylab(paste0("Average correlation with ",y, " genes")) +
     ylim(-0.1,0.1) +
     xlim(-0.1,0.1)
 })
 
 lapply(names(plots), function(x){
-  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/March22/Average_correlations/Immature_vs_Relapse/", x, ".pdf", sep = ""),
+  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/March22/Average_correlations/Immature_vs_Relapse/test/", x, ".pdf", sep = ""),
          plot = plots[[x]],
          width = 8,
          height = 5)
 })
+
+######################################################################################################################
+
+# compute similarity between persister matrices 
+
+# 11 correlation matrices 
+cmb <- combn(c(1:length(unique(dat.sub$patient_id))), 2)
+names_cmb <- combn(unique(dat.sub$patient_id), 2)
+
+matched_res <- apply(cmb, 2, function(x){
+  df <- list(m1=res_list$res_Persister[[x[[1]]]][intersect(rownames(res_list$res_Persister[[x[[1]]]]), 
+                                                   rownames(res_list$res_Persister[[x[[2]]]])), 
+                                                 intersect(colnames(res_list$res_Persister[[x[[1]]]]),
+                                                 colnames(res_list$res_Persister[[x[[2]]]]))],
+             m2=res_list$res_Persister[[x[[2]]]][intersect(rownames(res_list$res_Persister[[x[[1]]]]), 
+                                                        rownames(res_list$res_Persister[[x[[2]]]])),
+                                                 intersect(colnames(res_list$res_Persister[[x[[1]]]]),
+                                                 colnames(res_list$res_Persister[[x[[2]]]]))])
+})
+
+names(matched_res) <- apply(names_cmb, 2, function(x){
+  paste(x[[1]], x[[2]], sep = ".")
+})
+
+lapply(matched_res, function(x){
+  print(paste(length(rownames(x[["m1"]])), length(rownames(x[["m2"]])), sep = " "))
+  print(paste(length(colnames(x[["m1"]])), length(colnames(x[["m2"]])), sep = " "))
+})
+
+extracted_tri.all.combos <- lapply(matched_res, function(x){
+  list <- list(t(x[["m1"]])[lower.tri(t(x[["m1"]]))],
+               t(x[["m2"]])[lower.tri(t(x[["m2"]]))])
+  names(list) <- c("m1", "m2")
+  return(list)
+})
+
+lapply(extracted_tri.all.combos, function(x){
+  print(paste(length(x[["m1"]]), length(x[["m2"]]), sep = " "))
+})
+
+spearman_correlations <- lapply(extracted_tri.all.combos, function(x){
+  cor.test(x[["m1"]], x[["m2"]], method = "spearman", exact=F)
+})
+
