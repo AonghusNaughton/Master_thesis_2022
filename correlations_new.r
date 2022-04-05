@@ -1,6 +1,10 @@
+library(tidyverse)
+library(pheatmap)
+
 dat.sub <- readRDS("dat.sub_wNa_feb22.Rds")
 true_persister_gene_set_rel <- readRDS("true_persister_gene_set_rel_new1.Rds")
 true_persister_gene_set_d15 <- readRDS("true_persister_gene_set_d15_new1.Rds")
+B_cell_states <- readRDS("B_cell_states.rds")
 geneSets <- unique(c(true_persister_gene_set_d15, true_persister_gene_set_rel, B_cell_states$`Immature-B`, B_cell_states$`Mature-B`))
 dat.sub <- dat.sub[,dat.sub$cell_phase=="G1" & dat.sub$timepoint=="diagnosis"]
 
@@ -53,7 +57,8 @@ res <- lapply(df2, function(x){
   res <- cor(as.matrix(t(x)), method = "spearman")
 })
 
-saveRDS(res, "correlation_matrix.Rds")
+
+# saveRDS(res, "correlation_matrix.Rds")
 
 # Correlation matrices for all combinations of gene sets
 
@@ -97,6 +102,7 @@ names(res_list) <- c("res_Immature.Mature", "res_Immature.Persister",
                      "res_Relapse", "res_Persister.Relapse")
 
 plots <- list()
+paletteLength <- 100
 for (i in names(res_list)){
   plots[[i]] <- lapply(res_list[[i]], function(x){
     pheatmap(as.matrix(x), cluster_rows = T, cluster_cols = T,
@@ -106,13 +112,13 @@ for (i in names(res_list)){
   })
 }
 
-lapply(names(plots), function(x){
-  dir.create(paste("/Users/aonghusnaughton/Proj_eng/March22/", x, "_cor_heatmaps", sep = ""))
-})
+# lapply(names(plots), function(x){
+#   dir.create(paste("/Users/aonghusnaughton/Proj_eng/March22/", x, "_cor_heatmaps", sep = ""))
+# })
 
 lapply(names(plots), function(x){
   lapply(names(plots[[x]]), function(y){
-    pdf(paste("/Users/aonghusnaughton/Proj_eng/March22/", x, "_cor_heatmaps/", y, ".pdf", sep = ""), height = 10, width = 10)
+    pdf(paste("/Users/aonghusnaughton/Proj_eng/March22/", x, "_cor_heatmaps/", y, ".pdf", sep = ""), height = 12, width = 12)
     grid::grid.newpage()
     grid::grid.draw(plots[[x]][[y]]$gtable)
     dev.off()
@@ -155,9 +161,9 @@ y_gene_coordinates <- vector(mode = "list", length = length(names))
 names(y_gene_coordinates) <- lapply(names, function(x) x)
 
 for (i in names){
-  y_gene_coordinates[[i]] <- data.frame(eval(parse(text = paste0(y, "_genes_x_coord")))[[i]], 
-                    eval(parse(text = paste0(y, "_genes_y_coord")))[[i]], 
-                    y)
+  y_gene_coordinates[[i]] <- data.frame(eval(parse(text = paste0(y, "_genes_x_coord")))[[i]],
+                                        eval(parse(text = paste0(y, "_genes_y_coord")))[[i]], 
+                                        y)
 } 
 
 for (i in names){
@@ -201,6 +207,7 @@ lapply(names(plots), function(x){
 ######################################################################################################################
 
 # compute similarity between persister matrices 
+# Overall correlation
 
 # 11 correlation matrices 
 cmb <- combn(c(1:length(unique(dat.sub$patient_id))), 2)
@@ -241,3 +248,5 @@ spearman_correlations <- lapply(extracted_tri.all.combos, function(x){
   cor.test(x[["m1"]], x[["m2"]], method = "spearman", exact=F)
 })
 
+
+# Clusters 
