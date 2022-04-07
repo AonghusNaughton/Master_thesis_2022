@@ -65,7 +65,13 @@ lapply(clusters, function(x){
 
 cmb <- combn(unique(dat.sub$patient_id), 2)
 
-dendlist(as.dendrogram(clusters$MRD_ALL71), as.dendrogram(clusters$MRD_ALL64)) %>%
+apply(cmb, 2, function(x){
+  dendlist(as.dendrogram(clusters[[x[1]]], as.dendrogram(clusters[[x[2]]]))) %>%
+    untangle(method = "step1side") %>%
+    tanglegram()
+})
+
+dendlist(as.dendrogram(clusters$MRD_ALL71), as.dendrogram(clusters$MRD_ALL67)) %>%
   untangle(method = "step1side") %>% # Find the best alignment layout
   tanglegram()                       # Draw the two dendrograms
 
@@ -82,3 +88,5 @@ plot(a,  xlab = "Height",
 
 
 heatmap.2(res$MRD_ALL71, main = "Hierarchical Cluster", dendrogram="column",trace="none",col=greenred(10))
+
+

@@ -5,7 +5,7 @@ dat.sub <- readRDS("dat.sub_wNa_feb22.Rds")
 true_persister_gene_set_rel <- readRDS("true_persister_gene_set_rel_new1.Rds")
 true_persister_gene_set_d15 <- readRDS("true_persister_gene_set_d15_new1.Rds")
 B_cell_states <- readRDS("B_cell_states.rds")
-geneSets <- unique(c(true_persister_gene_set_d15, true_persister_gene_set_rel, B_cell_states$`Immature-B`, B_cell_states$`Mature-B`))
+geneSets <- unique(c(true_persister_gene_set_d15, true_persister_gene_set_rel, B_cell_states$`Immature-B`, B_cell_states$`Mature-B`, B_cell_states$HSPC))
 dat.sub <- dat.sub[,dat.sub$cell_phase=="G1" & dat.sub$timepoint=="diagnosis"]
 
 names <- unique(dat.sub$patient_id)
@@ -92,6 +92,12 @@ res_list <- list(
   }),
   res_Persister.Relapse <- lapply(res, function(x){
     df <- x[intersect(rownames(x), true_persister_gene_set_d15), intersect(colnames(x), true_persister_gene_set_rel)]
+  }),
+  res_HSPC <- lapply(res, function(x){
+    df <- x[intersect(rownames(x), B_cell_states$HSPC), intersect(colnames(x), B_cell_states$HSPC)]
+  }),
+  res_HSPC.Mature <- lapply(res, function(x){
+    df <- x[intersect(rownames(x), B_cell_states$HSPC), intersect(colnames(x), B_cell_states$`Mature-B`)]
   })
 )
 
@@ -99,7 +105,10 @@ names(res_list) <- c("res_Immature.Mature", "res_Immature.Persister",
                      "res_Immature.Relapse", "res_Mature.Persister", 
                      "res_Mature.Relapse", "res_Immature",
                      "res_Mature", "res_Persister",
-                     "res_Relapse", "res_Persister.Relapse")
+                     "res_Relapse", "res_Persister.Relapse",
+                     "res_HSPC", "res_HSPC.Mature")
+
+saveRDS(res_list, "res_list.Rds")
 
 plots <- list()
 paletteLength <- 100
@@ -127,8 +136,8 @@ lapply(names(plots), function(x){
 
 ######################################################################################################################
 
-y <- "Immature"
-x <- "Relapse"
+y <- "HSPC"
+x <- "Mature"
 
 # Average correlation of y-axis genes to x-axis genes 
 assign(paste0(y, "_genes_x_coord"), lapply(eval(parse(text=paste0("res_list[['res_", y, ".", x, "']]"))), function(i){
@@ -191,14 +200,18 @@ for (i in names){
 plots <- lapply(combined, function(i){
   ggplot(i, aes(x,y, color=geneset)) +
     geom_point() + 
-    xlab(paste0("Average correlation with ", x, " genes")) +
-    ylab(paste0("Average correlation with ",y, " genes")) +
-    ylim(-0.1,0.1) +
-    xlim(-0.1,0.1)
+    xlab(paste0(x)) +
+    ylab(paste0(y)) +
+    ylim(-0.15,0.15) +
+    xlim(-0.15,0.15) +
+    geom_hline(yintercept = 0) +
+    geom_vline(xintercept = 0) +
+    theme_classic() +
+    theme(legend.position = "right")
 })
 
 lapply(names(plots), function(x){
-  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/March22/Average_correlations/Immature_vs_Relapse/test/", x, ".pdf", sep = ""),
+  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/March22/Average_correlations/HSPC_vs_Mature/", x, ".pdf", sep = ""),
          plot = plots[[x]],
          width = 8,
          height = 5)
