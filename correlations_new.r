@@ -1,14 +1,59 @@
 library(tidyverse)
-library(pheatmap)
 
 dat.sub <- readRDS("dat.sub_wNa_feb22.Rds")
-true_persister_gene_set_rel <- readRDS("true_persister_gene_set_rel_new1.Rds")
-true_persister_gene_set_d15 <- readRDS("true_persister_gene_set_d15_new1.Rds")
-B_cell_states <- readRDS("B_cell_states.rds")
-geneSets <- unique(c(true_persister_gene_set_d15, true_persister_gene_set_rel, B_cell_states$`Immature-B`, B_cell_states$`Mature-B`, B_cell_states$HSPC))
-dat.sub <- dat.sub[,dat.sub$cell_phase=="G1" & dat.sub$timepoint=="diagnosis"]
+relapse_genes <- readRDS("relapse_genes.Rds")
+persister_genes <- readRDS("persister_genes.Rds")
+
+geneSets <- unique(c(persister_genes, relapse_genes))
+# geneSets <- unique(c(relapse_genes, random_relapse))
+timepoint <- "d0"
+dat.sub <- dat.sub[,dat.sub$cell_phase=="G1" & dat.sub$timepoint_short==timepoint]
 
 names <- unique(dat.sub$patient_id)
+if (timepoint == "d15"){
+  names <- names[!names %in% "MRD_ALL47"]
+}
+
+minCount <- 10
+
+names <- unique(dat.sub$patient_id)
+df1 <- lapply(names, function(x) as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@counts)) 
+names(df1) <- lapply(names, function(x) x)
+
+df_na <- lapply(df1, function(x){
+  na_if(x, 0)
+})
+
+genes_above_threshold <- lapply(df_na, function(x){
+  genes <- apply(x, 1, function(row) sum(!is.na(row)))
+  genes <- names(genes[genes > minCount])
+  return(genes)
+})
+
+for (i in names){
+  df1[[i]] <- df1[[i]][genes_above_threshold[[i]],]
+}
+
+cmb1 <- combn(unique(dat.sub$patient_id), 2)
+
+common_to_two <- apply(cmb1, 2, function(x){
+  intersect(rownames(df1[[x[1]]]), rownames(df1[[x[2]]]))
+})
+
+names(common_to_two) <- apply(cmb1, 2, function(x){
+  paste(x[1], "&", x[2], sep = "")
+})
+
+genes_in_at_least_two <- c()
+for (i in 1:length(names(common_to_two))){
+  genes_in_at_least_two <- c(genes_in_at_least_two, common_to_two[[i]])
+}
+
+genes_in_at_least_two <- unique(genes_in_at_least_two)
+# saveRDS(genes_in_at_least_two, "highly_exp_genes.Rds")
+
+dat.sub <- subset(dat.sub, features= genes_in_at_least_two)
+saveRDS(dat.sub, "dat.sub_filtered_10_cells_d0.Rds")
 
 df1 <- lapply(names, function(x){
   if (x=="ALL3"){
@@ -22,6 +67,8 @@ df1 <- lapply(names, function(x){
 names(df1) <- lapply(names, function(x){
   x
 })
+
+# saveRDS(df1, "counts_per_pid_10.Rds")
 
 for (i in names){
   df1[[i]] <- df1[[i]][geneSets,]
@@ -48,218 +95,116 @@ names(df2) <- lapply(names, function(x){
   x
 })
 
+# saveRDS(df2, "scale_data_counts_10.Rds")
+
 for (i in names){
   df2[[i]] <- df2[[i]][gene_list_for_scaled[[i]],]
 }
 
+corr <- lapply(df2, function(x){
+  res <- corr.test(as.matrix(t(x)), method = "spearman")
+})
 
-res <- lapply(df2, function(x){
-  res <- cor(as.matrix(t(x)), method = "spearman")
+corr_filtered <- lapply(corr, function(matrix){
+  # a <- matrix$p %>%
+  #   {(function(x){x[lower.tri(x)] <- NA; x})(.)} %>%
+  #   as.table() %>% as.data.frame() %>%
+  #   subset(Var1 != Var2) %>%
+  #   subset(!is.na(Freq)) %>%
+  #   subset(Freq < 0.1) %>%
+  #   mutate(combined=paste(Var1, Var2, sep = "."),
+  #          combined_backwards=paste(Var2, Var1, sep = "."))
+  
+  b <- matrix$r %>%
+    as.table() %>% as.data.frame() %>%
+    mutate(combined=paste(Var1, Var2, sep = ".")) %>%
+    # subset((combined  %in% a$combined | combined %in% a$combined_backwards)) %>%
+    mutate(geneSet=case_when(Var1 %in% persister_genes & Var2 %in% persister_genes ~ "Persister",
+                             Var1 %in% persister_genes & Var2 %in% relapse_genes ~ "Relapse-Persister",
+                             Var1 %in% relapse_genes & Var2 %in% persister_genes ~ "Persister-Relapse",
+                             Var1 %in% relapse_genes & Var2 %in% relapse_genes ~ "Relapse")) %>%
+  group_by(geneSet) %>%
+  group_by(Var2, .add=T) %>%
+  summarise(avg=mean(Freq)) %>%
+    mutate(x_axis=case_when(geneSet %in% "Relapse" ~ avg,  geneSet %in% "Persister-Relapse" ~ avg)) %>%
+    mutate(y_axis=case_when(geneSet %in% "Persister" ~ avg, geneSet %in% "Relapse-Persister" ~ avg)) %>%
+    mutate(gene_set=case_when(Var2 %in% persister_genes ~ "Persister",
+                              Var2 %in% relapse_genes ~ "Relapse")) %>%
+    ungroup(Var2) %>%
+    ungroup(geneSet) %>%
+    dplyr::select(-c(geneSet, avg)) %>%
+    replace_na(list(x_axis=0, y_axis=0)) %>%
+    group_by(Var2, gene_set) %>%
+    summarise(x_axis=sum(x_axis),
+              y_axis=sum(y_axis))
+  return(b) 
+})
+
+plots <- lapply(corr_filtered, function(x){
+  x %>%
+    ggplot(aes(x_axis,y_axis, color=gene_set)) +
+    geom_point() + 
+    xlab(paste0("Relapse")) +
+    ylab(paste0("Persister")) +
+    ylim(-0.1,0.1) +
+    xlim(-0.1,0.1) +
+    geom_hline(yintercept = 0) +
+    geom_vline(xintercept = 0) +
+    theme_classic()
+})
+
+lapply(names(plots), function(i){
+  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/April22/Average_correlations_new/filtered_p_vals/", i, ".pdf", sep = ""),
+         plot = plots[[i]],
+         width = 8,
+         height = 5)
 })
 
 
 # saveRDS(res, "correlation_matrix.Rds")
 
-# Correlation matrices for all combinations of gene sets
 
-res_list <- list(
-  res_Immature.Mature <- lapply(res, function(x){
-    df <- x[intersect(rownames(x), B_cell_states$`Immature-B`), intersect(colnames(x), B_cell_states$`Mature-B`)]
-  }),
-  res_Immature.Persister <- lapply(res, function(x){
-    df <- x[intersect(rownames(x), B_cell_states$`Immature-B`), intersect(colnames(x), true_persister_gene_set_d15)]
-  }),
-  res_Immature.Relapse <- lapply(res, function(x){
-    df <- x[intersect(rownames(x), B_cell_states$`Immature-B`), intersect(colnames(x), true_persister_gene_set_rel)]
-  }),
-  res_Mature.Persister <- lapply(res, function(x){
-    df <- x[intersect(rownames(x), B_cell_states$`Mature-B`), intersect(colnames(x), true_persister_gene_set_d15)]
-  }),
-  res_Mature.Relapse <- lapply(res, function(x){
-    df <- x[intersect(rownames(x), B_cell_states$`Mature-B`), intersect(colnames(x), true_persister_gene_set_rel)]
-  }),
-  res_Immature <- lapply(res, function(x){
-    df <- x[intersect(rownames(x), B_cell_states$`Immature-B`), intersect(colnames(x), B_cell_states$`Immature-B`)]
-  }),
-  res_Mature <- lapply(res, function(x){
-    df <- x[intersect(rownames(x), B_cell_states$`Mature-B`), intersect(colnames(x), B_cell_states$`Mature-B`)]
-  }),
-  res_Persister <- lapply(res, function(x){
-    df <- x[intersect(rownames(x), true_persister_gene_set_d15), intersect(colnames(x), true_persister_gene_set_d15)]
-  }),
-  res_Relapse <- lapply(res, function(x){
-    df <- x[intersect(rownames(x), true_persister_gene_set_rel), intersect(colnames(x), true_persister_gene_set_rel)]
-  }),
-  res_Persister.Relapse <- lapply(res, function(x){
-    df <- x[intersect(rownames(x), true_persister_gene_set_d15), intersect(colnames(x), true_persister_gene_set_rel)]
-  }),
-  res_HSPC <- lapply(res, function(x){
-    df <- x[intersect(rownames(x), B_cell_states$HSPC), intersect(colnames(x), B_cell_states$HSPC)]
-  }),
-  res_HSPC.Mature <- lapply(res, function(x){
-    df <- x[intersect(rownames(x), B_cell_states$HSPC), intersect(colnames(x), B_cell_states$`Mature-B`)]
-  })
-)
-
-names(res_list) <- c("res_Immature.Mature", "res_Immature.Persister",
-                     "res_Immature.Relapse", "res_Mature.Persister", 
-                     "res_Mature.Relapse", "res_Immature",
-                     "res_Mature", "res_Persister",
-                     "res_Relapse", "res_Persister.Relapse",
-                     "res_HSPC", "res_HSPC.Mature")
-
-saveRDS(res_list, "res_list.Rds")
-
-plots <- list()
-paletteLength <- 100
-for (i in names(res_list)){
-  plots[[i]] <- lapply(res_list[[i]], function(x){
-    pheatmap(as.matrix(x), cluster_rows = T, cluster_cols = T,
-             color = colorRampPalette(c("yellow", "white", "blue"))(paletteLength),
-             breaks = c(seq(min(as.matrix(x)), 0, length.out=ceiling(paletteLength/2) + 1),
-                        seq(max(as.matrix(x))/paletteLength, max(as.matrix(x)), length.out=floor(paletteLength/2))))
-  })
-}
-
-# lapply(names(plots), function(x){
-#   dir.create(paste("/Users/aonghusnaughton/Proj_eng/March22/", x, "_cor_heatmaps", sep = ""))
-# })
-
-lapply(names(plots), function(x){
-  lapply(names(plots[[x]]), function(y){
-    pdf(paste("/Users/aonghusnaughton/Proj_eng/March22/", x, "_cor_heatmaps/", y, ".pdf", sep = ""), height = 12, width = 12)
-    grid::grid.newpage()
-    grid::grid.draw(plots[[x]][[y]]$gtable)
-    dev.off()
-  })
-})
-
-######################################################################################################################
-
-y <- "HSPC"
-x <- "Mature"
-
-# Average correlation of y-axis genes to x-axis genes 
-assign(paste0(y, "_genes_x_coord"), lapply(eval(parse(text=paste0("res_list[['res_", y, ".", x, "']]"))), function(i){
-  rowMeans(i)
-}))
-
-# Average correlation of y-axis genes to y-axis genes 
-assign(paste0(y, "_genes_y_coord"), lapply(eval(parse(text=paste0("res_list[['res_", y,"']]"))), function(i){
-  rowMeans(i)
-}))
-
-
-# Average correlation of x-axis genes x-axis genes 
-assign(paste0(x, "_genes_x_coord"), lapply(eval(parse(text = paste0("res_list[['res_", x, "']]"))), function(i){
-  rowMeans(i)
-}))
-
-# Average correlation of x-axis genes to y-axis genes 
-assign(paste0(x, "_genes_y_coord"), lapply(eval(parse(text = paste0("res_list[['res_", y, ".", x, "']]"))), function(i){
-  colMeans(i)
-}))
-
-
-######################################################################################################################
-
-# Create data structure that holds x and y coordinates for each gene and plot as points on a coordinate plane.
-
-
-y_gene_coordinates <- vector(mode = "list", length = length(names))
-names(y_gene_coordinates) <- lapply(names, function(x) x)
-
-for (i in names){
-  y_gene_coordinates[[i]] <- data.frame(eval(parse(text = paste0(y, "_genes_x_coord")))[[i]],
-                                        eval(parse(text = paste0(y, "_genes_y_coord")))[[i]], 
-                                        y)
-} 
-
-for (i in names){
-  colnames(y_gene_coordinates[[i]]) <- c("x", "y", "geneset")
-}
-
-x_gene_coordinates <- vector(mode = "list", length = length(names))
-
-for (i in names){
-  x_gene_coordinates[[i]] <- data.frame(eval(parse(text = paste0(x, "_genes_x_coord")))[[i]], 
-                                        eval(parse(text = paste0(x, "_genes_y_coord")))[[i]], 
-                                        x)
-} 
-
-for (i in names){
-  colnames(x_gene_coordinates[[i]]) <- c("x", "y", "geneset")
-}
-
-combined <- list()
-
-for (i in names){
-  combined[[i]] <- rbind(x_gene_coordinates[[i]], (y_gene_coordinates[[i]]))
-}
-
-plots <- lapply(combined, function(i){
-  ggplot(i, aes(x,y, color=geneset)) +
-    geom_point() + 
-    xlab(paste0(x)) +
-    ylab(paste0(y)) +
-    ylim(-0.15,0.15) +
-    xlim(-0.15,0.15) +
-    geom_hline(yintercept = 0) +
-    geom_vline(xintercept = 0) +
-    theme_classic() +
-    theme(legend.position = "right")
-})
-
-lapply(names(plots), function(x){
-  ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/March22/Average_correlations/HSPC_vs_Mature/", x, ".pdf", sep = ""),
-         plot = plots[[x]],
-         width = 8,
-         height = 5)
-})
 
 ######################################################################################################################
 
 # compute similarity between persister matrices 
-# Overall correlation
 
 # 11 correlation matrices 
-cmb <- combn(c(1:length(unique(dat.sub$patient_id))), 2)
-names_cmb <- combn(unique(dat.sub$patient_id), 2)
+# # cmb <- combn(c(1:length(unique(dat.sub$patient_id))), 2)
+# names_cmb <- combn(unique(dat.sub$patient_id), 2)
+# 
+# matched_res <- apply(cmb, 2, function(x){
+#   df <- list(m1=res_list$res_Persister[[x[[1]]]][intersect(rownames(res_list$res_Persister[[x[[1]]]]), 
+#                                                    rownames(res_list$res_Persister[[x[[2]]]])), 
+#                                                  intersect(colnames(res_list$res_Persister[[x[[1]]]]),
+#                                                  colnames(res_list$res_Persister[[x[[2]]]]))],
+#              m2=res_list$res_Persister[[x[[2]]]][intersect(rownames(res_list$res_Persister[[x[[1]]]]), 
+#                                                         rownames(res_list$res_Persister[[x[[2]]]])),
+#                                                  intersect(colnames(res_list$res_Persister[[x[[1]]]]),
+#                                                  colnames(res_list$res_Persister[[x[[2]]]]))])
+# })
+# 
+# names(matched_res) <- apply(names_cmb, 2, function(x){
+#   paste(x[[1]], x[[2]], sep = ".")
+# })
+# 
+# lapply(matched_res, function(x){
+#   print(paste(length(rownames(x[["m1"]])), length(rownames(x[["m2"]])), sep = " "))
+#   print(paste(length(colnames(x[["m1"]])), length(colnames(x[["m2"]])), sep = " "))
+# })
+# 
+# extracted_tri.all.combos <- lapply(matched_res, function(x){
+#   list <- list(t(x[["m1"]])[lower.tri(t(x[["m1"]]))],
+#                t(x[["m2"]])[lower.tri(t(x[["m2"]]))])
+#   names(list) <- c("m1", "m2")
+#   return(list)
+# })
+# 
+# lapply(extracted_tri.all.combos, function(x){
+#   print(paste(length(x[["m1"]]), length(x[["m2"]]), sep = " "))
+# })
+# 
+# spearman_correlations <- lapply(extracted_tri.all.combos, function(x){
+#   cor.test(x[["m1"]], x[["m2"]], method = "spearman", exact=F)
+# })
 
-matched_res <- apply(cmb, 2, function(x){
-  df <- list(m1=res_list$res_Persister[[x[[1]]]][intersect(rownames(res_list$res_Persister[[x[[1]]]]), 
-                                                   rownames(res_list$res_Persister[[x[[2]]]])), 
-                                                 intersect(colnames(res_list$res_Persister[[x[[1]]]]),
-                                                 colnames(res_list$res_Persister[[x[[2]]]]))],
-             m2=res_list$res_Persister[[x[[2]]]][intersect(rownames(res_list$res_Persister[[x[[1]]]]), 
-                                                        rownames(res_list$res_Persister[[x[[2]]]])),
-                                                 intersect(colnames(res_list$res_Persister[[x[[1]]]]),
-                                                 colnames(res_list$res_Persister[[x[[2]]]]))])
-})
-
-names(matched_res) <- apply(names_cmb, 2, function(x){
-  paste(x[[1]], x[[2]], sep = ".")
-})
-
-lapply(matched_res, function(x){
-  print(paste(length(rownames(x[["m1"]])), length(rownames(x[["m2"]])), sep = " "))
-  print(paste(length(colnames(x[["m1"]])), length(colnames(x[["m2"]])), sep = " "))
-})
-
-extracted_tri.all.combos <- lapply(matched_res, function(x){
-  list <- list(t(x[["m1"]])[lower.tri(t(x[["m1"]]))],
-               t(x[["m2"]])[lower.tri(t(x[["m2"]]))])
-  names(list) <- c("m1", "m2")
-  return(list)
-})
-
-lapply(extracted_tri.all.combos, function(x){
-  print(paste(length(x[["m1"]]), length(x[["m2"]]), sep = " "))
-})
-
-spearman_correlations <- lapply(extracted_tri.all.combos, function(x){
-  cor.test(x[["m1"]], x[["m2"]], method = "spearman", exact=F)
-})
-
-
-# Clusters 

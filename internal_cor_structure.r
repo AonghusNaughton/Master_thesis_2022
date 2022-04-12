@@ -1,7 +1,7 @@
 # Pairwise gene correlations in each patient 
 library(tidyverse)
-dat.sub <- readRDS("dat.sub_wNa_feb22.Rds")
-dat.sub <- dat.sub[, dat.sub$timepoint_short=="d0"]
+library(Hmisc)
+dat.sub <- readRDS("dat.sub_filtered_10_cells_d0.Rds")
 names <- unique(dat.sub$patient_id)
 
 persister_genes <- readRDS("persister_genes.Rds")
@@ -48,20 +48,26 @@ for (i in names){
   df2[[i]] <- df2[[i]][gene_list_for_scaled[[i]],]
 }
 
-res <- lapply(df2, function(x){
-  t(x) %>%
-    as.matrix %>%
-    cor %>% {(function(x){x[upper.tri(x)] <- NA; x})(.)} %>%
+corr <- lapply(df2, function(x){
+  res <- corr.test(as.matrix(t(x)), method = "spearman")
+})
+
+res <- lapply(corr, function(x){
+  x$p %>%
+    {(function(x){x[lower.tri(x)] <- NA; x})(.)} %>%
     as.table() %>% as.data.frame() %>%
     subset(Var1 != Var2) %>%
     subset(!is.na(Freq)) %>%
-    mutate(combined=paste(Var1, Var2, sep = ".")) %>% 
+    subset(Freq < 0.05) %>%
+    mutate(combined=paste(Var1, Var2, sep = ".")) %>%
     mutate(genes=case_when(Var1 %in% persister_genes & Var2 %in% persister_genes ~ "Persister pair",
-                             (Var1 %in% persister_genes & Var2 %in% relapse_genes | 
+                             (Var1 %in% persister_genes & Var2 %in% relapse_genes |
                                 Var1 %in% relapse_genes & Var2 %in% persister_genes) ~ "Mix pair",
                              Var1 %in% relapse_genes & Var2 %in% relapse_genes ~ "Relapse pair")) %>%
-    select(-c(Var1, Var2)) %>%
-    arrange(combined) 
+    dplyr::select(-c(Var1, Var2)) %>%
+    arrange(combined)
+  x$r %>%
+    
 })
 
 cmb <- combn(c(unique(dat.sub$patient_id)), 2)
