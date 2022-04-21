@@ -55,53 +55,29 @@ genes_in_at_least_two <- unique(genes_in_at_least_two)
 dat.sub <- subset(dat.sub, features= genes_in_at_least_two)
 saveRDS(dat.sub, "dat.sub_filtered_10_cells_d0.Rds")
 
-df1 <- lapply(names, function(x){
+df <- lapply(names, function(x){
   if (x=="ALL3"){
-    c <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@counts)
+    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@counts)
+    df2 <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@scale.data)
   } else {
-    c <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@counts)
+    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@counts)
+    df2 <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@scale.data)
   }
-  return(c)
+  df <- df[geneSets,]
+  df <- df[rowSums(df)>0,]
+  genes <- rownames(df)
+  df2 <- df2[genes,]
+  return(df2)
 }) 
 
-names(df1) <- lapply(names, function(x){
+names(df) <- lapply(names, function(x){
   x
 })
 
-# saveRDS(df1, "counts_per_pid_10.Rds")
+# saveRDS(df, "counts_per_pid_10.Rds")
 
-for (i in names){
-  df1[[i]] <- df1[[i]][geneSets,]
-}
 
-for (i in names){
-  df1[[i]] <- (df1[[i]][rowSums(df1[[i]])>0,])
-}
-
-gene_list_for_scaled <- lapply(df1, function(x){
-  rownames(x)
-})
-
-df2 <- lapply(names, function(x){
-  if (x=="ALL3"){
-    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@scale.data)
-  } else {
-    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@scale.data)
-  }
-  return(df)
-})
-
-names(df2) <- lapply(names, function(x){
-  x
-})
-
-# saveRDS(df2, "scale_data_counts_10.Rds")
-
-for (i in names){
-  df2[[i]] <- df2[[i]][gene_list_for_scaled[[i]],]
-}
-
-corr <- lapply(df2, function(x){
+corr <- lapply(df, function(x){
   res <- corr.test(as.matrix(t(x)), method = "spearman")
 })
 
