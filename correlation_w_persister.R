@@ -1,4 +1,5 @@
 library(tidyverse)
+library(beeswarm)
 highly_exp_genes <- readRDS("highly_exp_genes.Rds")
 dat.sub <- readRDS("dat.sub_filtered_10_cells_d0.Rds")
 counts <- readRDS("counts_per_pid_10.Rds")

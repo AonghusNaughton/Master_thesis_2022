@@ -1,73 +1,43 @@
 # Pairwise gene correlations in each patient 
 library(tidyverse)
 library(Hmisc)
+library(ggrepel)
 dat.sub <- readRDS("dat.sub_filtered_10_cells_d0.Rds")
 names <- unique(dat.sub$patient_id)
 
 persister_genes <- readRDS("persister_genes.Rds")
-relapse_genes <- readRDS("relapse_genes.Rds")
-genes <- unique(c(persister_genes, relapse_genes))
 
-df1 <- lapply(names, function(x){
+df <- lapply(names, function(x){
   if (x=="ALL3"){
-    c <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@counts)
+    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts"]@assays$RNA@counts)
+    df2 <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts"]@assays$RNA@scale.data)
   } else {
-    c <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@counts)
+    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@counts)
+    df2 <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@scale.data)
   }
-  return(c)
-}) 
-
-names(df1) <- lapply(names, function(x){
-  x
+  df <- df[persister_genes,]
+  df <- df[rowSums(df)>0,]
+  genes <- rownames(df)
+  df2 <- df2[genes,]
+  return(df2)
 })
 
-df1 <- lapply(df1, function(x){
-  x <- x[genes,]
-  x <- x[rowSums(x) > 0,]
-  return(x)
-})
-
-gene_list_for_scaled <- lapply(df1, function(x){
-  rownames(x)
-})
-
-df2 <- lapply(names, function(x){
-  if (x=="ALL3"){
-    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@scale.data)
-  } else {
-    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@scale.data)
-  }
-  return(df)
-})
-
-names(df2) <- lapply(names, function(x){
-  x
-})
-
-for (i in names){
-  df2[[i]] <- df2[[i]][gene_list_for_scaled[[i]],]
-}
+names(df) <- lapply(names, function(x) x)
 
 
-var.corr <- lapply(df2, function(x){
+var.corr <- lapply(df, function(x){
   res <- correlatePairs(x)
 })
 
 sig.corr <- lapply(var.corr, function(x){
   x %>%
     as.data.frame() %>%
-    filter(FDR <= 0.05) %>%
-    filter(FDR != 0)
-  # res <- as.data.frame(x[x$FDR <= 0.05,])
+    filter(p.value <= 0.05)
 })
 
 sig.corr <- lapply(sig.corr, function(x){
   x %>%
-    mutate(gene_set=case_when(gene1 %in% persister_genes & gene2 %in% persister_genes ~ "Persister genes",
-                              gene1 %in% persister_genes & gene2 %in% relapse_genes ~ "Mixed pair",
-                              gene2 %in% persister_genes & gene1 %in% relapse_genes ~ "Mixed pair",
-                              gene1 %in% relapse_genes & gene2 %in% relapse_genes ~ "Relapse genes")) %>%
-    mutate(combined=paste(gene1, gene2, sep = "."))
+    mutate(combined=paste(gene1, gene2, sep = " & "))
 })
 
 cmb <- combn(c(unique(dat.sub$patient_id)), 2)
@@ -82,7 +52,12 @@ df_for_plot <- apply(cmb, 2, function(i){
   dfy <- dfy %>%
     arrange(factor(combined, levels=order))
   df <- data.frame(dfx, dfy)
-  df <- df[, c("rho", "rho.1", "combined", "gene_set")]
+  df <- df[, c("rho", "rho.1", "combined")]
+  df <- df %>%
+    mutate(high_or_low=case_when(rho > 0.15 & rho.1 > 0.15 ~ "high",
+                                 rho < -0.15 & rho.1 < -0.15 ~ "low",
+                                 ((rho < 0.15 & rho.1 > -0.15) | (rho > 0.15 & rho.1 > -0.15) | (rho < 0.15 & rho.1 < -0.15))  ~ "neither"))
+  
   return(df)
 })
 
@@ -90,18 +65,75 @@ names(df_for_plot) <- apply(cmb, 2, function(x){
   paste(x[1], x[2], sep = ".")
 })
 
+combinations_of_combos <- combn(names(df_for_plot), 2)
+
+
+temp_df <- apply(combinations_of_combos, 2, function(i){
+  x <- df_for_plot[[i[1]]]
+  y <- df_for_plot[[i[2]]]
+  high_x <- x %>%
+    filter(high_or_low == "high") %>%
+    pull(combined)
+  low_x <- x %>%
+    filter(high_or_low == "low") %>%
+    pull(combined)
+  high_y <- y %>%
+    filter(high_or_low == "high") %>%
+    pull(combined)
+  low_y <- y %>%
+    filter(high_or_low == "low") %>%
+    pull(combined)
+  common_high <- intersect(high_x, high_y)
+  common_low <- intersect(low_x, low_y)
+  return(list(common_high,
+              common_low))
+})
+
+names(temp_df) <- apply(combinations_of_combos, 2, function(x){
+  paste(x[1], x[2], sep = ".")
+})
+
+common_high <- c()
+common_low <- c()
+for(i in temp_df){
+  common_high <- unique(c(common_high, i[[1]])) 
+  common_low <- unique(c(common_low, i[[2]]))
+}
+
+df_for_plot <- lapply(df_for_plot, function(x){
+  x %>%
+    mutate(commonality=case_when(combined %in% common_high ~ "Commonly correlated",
+                                 combined %in% common_low ~ "Commonly anti-correlated",
+                                 (!combined %in% common_high & !combined %in% common_low) ~ "Not"))
+})
+
+cols <- c("Commonly correlated" = "darkgreen", "Commonly anti-correlated" = "red", "Not" = "blue")
+
 plots <- lapply(names(df_for_plot), function(x){
     a <- gsub("\\..*", "", x)
     b <- gsub(".*\\.", "", x)
-    ggplot(df_for_plot[[x]], aes(rho, rho.1, color=gene_set)) +
+    ggplot(df_for_plot[[x]], aes(rho, rho.1, color=commonality, label=combined)) +
       geom_point() +
-      geom_smooth(method = "lm", se = FALSE, col='red', size=1) +
+      # geom_smooth(method = "lm", se = FALSE, col='red', size=1) +
       xlab(paste("Gene pair correlations in ", a, sep = "")) +
       ylab(paste("Gene pair correlations in ", b, sep = "")) +
       theme_classic() +
       geom_vline(xintercept = 0) +
-      geom_hline(yintercept = 0)
+      geom_hline(yintercept = 0) +
+      theme(legend.position = "right",
+            legend.title=element_blank()) +
+      geom_label_repel(aes(label = ifelse((((commonality=="Commonly correlated" | commonality=="Commonly anti-correlated") & ((rho > 0.2 & rho.1 > 0.2) | (rho < -0.2 & rho.1 < -0.2))) | ((rho > 0.25 & rho.1 > 0.25) | (rho < -0.25 & rho.1 < -0.25))), as.character(combined), "")),
+                       box.padding   = 0.1,
+                       segment.color = 'grey50',
+                       max.overlaps = Inf,
+                       size=1,
+                       show.legend = F) +
+      scale_colour_manual(values = cols)
   })
+
+names(plots) <- lapply(names(df_for_plot), function(x) x)
+
+
 
 for (i in names(plots)){
   ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/April22/int_cor_structure/persister_and_relapse/p_val_filtered/", i, ".pdf", sep = ""),
@@ -170,7 +202,7 @@ for (i in names(plots)){
 #     geom_hline(yintercept = 0)
 # })
 # 
-names(plots) <- lapply(names(df_for_plot), function(x) x)
+
 # 
 # for (i in names(plots)){
 #   ggsave(filename = paste("/Users/aonghusnaughton/Proj_eng/April22/int_cor_structure/persister_and_relapse/filtered/", i, ".pdf", sep = ""),

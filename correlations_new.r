@@ -1,4 +1,5 @@
 library(tidyverse)
+library(psych)
 
 dat.sub <- readRDS("dat.sub_wNa_feb22.Rds")
 relapse_genes <- readRDS("relapse_genes.Rds")
@@ -55,15 +56,17 @@ genes_in_at_least_two <- unique(genes_in_at_least_two)
 dat.sub <- subset(dat.sub, features= genes_in_at_least_two)
 saveRDS(dat.sub, "dat.sub_filtered_10_cells_d0.Rds")
 
+dat.sub <- readRDS("dat.sub_filtered_10_cells_d0.Rds")
+
 df <- lapply(names, function(x){
   if (x=="ALL3"){
-    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@counts)
-    df2 <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts" & dat.sub$rna_cell_type=="blasts"]@assays$RNA@scale.data)
+    df <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts"]@assays$RNA@counts)
+    df2 <- as.data.frame(dat.sub[,dat.sub$patient_id==x & dat.sub$dna_cell_type=="blasts"]@assays$RNA@scale.data)
   } else {
     df <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@counts)
     df2 <- as.data.frame(dat.sub[,dat.sub$patient_id==x]@assays$RNA@scale.data)
   }
-  df <- df[geneSets,]
+  # df <- df[geneSets,]
   df <- df[rowSums(df)>0,]
   genes <- rownames(df)
   df2 <- df2[genes,]
@@ -74,12 +77,27 @@ names(df) <- lapply(names, function(x){
   x
 })
 
-# saveRDS(df, "counts_per_pid_10.Rds")
+corr_pairs <- lapply(df, function(x){
+  res <- correlatePairs(x, pairings=list(rownames(x)[!rownames(x) %in% persister_genes],
+                                         rownames(x)[rownames(x) %in% persister_genes]))
+})
 
+sig_corr_pairs <- lapply(corr_pairs, function(x){
+  x %>%
+    as.data.frame() %>%
+    filter(FDR <= 0.05) 
+})
+
+saveRDS(sig_corr_pairs, "sig_corr_pairs.Rds")
 
 corr <- lapply(df, function(x){
-  res <- corr.test(as.matrix(t(x)), method = "spearman")
+  res <- corr.test(x=as.matrix(t(x[!rownames(x) %in% persister_genes,])),
+                   y=as.matrix(t(x[rownames(x) %in% persister_genes,])), 
+                   method = "spearman")
 })
+
+corr <- readRDS("correlations_allVsPersister.Rds")
+
 
 corr_filtered <- lapply(corr, function(matrix){
   # a <- matrix$p %>%
