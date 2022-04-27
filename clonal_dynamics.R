@@ -19,10 +19,15 @@ p <- ggplot(df, aes(x=factor(`dat.sub$timepoint`, levels = c("diagnosis", "day 2
                                                              "relapse 2")),
                     y=n_clone,
                     fill=`dat.sub$dna_class_short`)) +
-  geom_col (position = "fill") +
+  geom_col(position = "fill") +
   theme_classic() +
   facet_wrap(.~`dat.sub$patient_id`, scales = "free_x", nrow = 2) +
-  labs(y="Fraction of cells per clone", x="Timepoint", fill="DNA class")
+  labs(y="Fraction of cells per clone", x="Timepoint", fill="DNA class") +
+  geom_text(data = totals, aes(x=`dat.sub$timepoint`,
+                               y=n_timepoint,
+                               label=n_timepoint,
+                               fill=NULL), nudge_y = 10)
   
-
+  
+ggsave("/Users/aonghusnaughton/Proj_eng/April22/clonal_fractions.pdf", height = 7, width = 11)
   

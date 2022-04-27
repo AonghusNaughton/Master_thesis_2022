@@ -34,10 +34,26 @@ names(clust) <- lapply(names, function(x) x)
 cluster_plots <- lapply(clust, function(x){
   x$cluster %>%
     as.table() %>% as.data.frame() %>%
-    filter(Var1 %in% persister_genes) %>%
+    mutate(persister=case_when(Var1 %in% persister_genes[[1]] ~ "Persister",
+                               !Var1 %in% persister_genes[[1]] ~ "Non-persister")) %>%
+    # filter(Var1 %in% persister_genes) %>%
     mutate(x="") %>%
-    ggplot(aes(x=x, y=Freq)) +
-    geom_beeswarm() +
+    ggplot(aes(x=Freq, y=Freq, color=persister)) +
+    geom_col() +
+    theme_classic() +
+    labs(x="Proportion of persister genes per cluster",
+         y="Cluster")
+})
+
+cluster_plots <- lapply(clust, function(x){
+  x$cluster %>%
+    as.table() %>% as.data.frame() %>%
+    mutate(persister=case_when(Var1 %in% persister_genes[[1]] ~ "Persister",
+                               !Var1 %in% persister_genes[[1]] ~ "Non-persister")) %>%
+    # filter(Var1 %in% persister_genes) %>%
+    # mutate(x="") %>%
+    ggplot(aes(x=Freq, y=Var1, color=persister)) +
+    geom_col() +
     theme_classic() +
     labs(x="Proportion of persister genes per cluster",
          y="Cluster")
@@ -51,5 +67,3 @@ clusters <- lapply(clust, function(x){
     filter(Var1 %in% persister_genes)
 })
 
-clusters$ALL1$Var1[clusters$ALL1$Freq==15]
-clusters$ALL1$Var1[clusters$ALL1$Freq==1]

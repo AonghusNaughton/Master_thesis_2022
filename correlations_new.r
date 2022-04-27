@@ -82,11 +82,45 @@ corr_pairs <- lapply(df, function(x){
                                          rownames(x)[rownames(x) %in% persister_genes]))
 })
 
-sig_corr_pairs <- lapply(corr_pairs, function(x){
+sig_corr_pairs_pos <- lapply(corr_pairs, function(x){
   x %>%
     as.data.frame() %>%
-    filter(FDR <= 0.05) 
+    filter(FDR <= 0.05) %>%
+    filter(rho > 0.2)
 })
+
+sig_corr_pairs_neg <- lapply(corr_pairs, function(x){
+  x %>%
+    as.data.frame() %>%
+    filter(FDR <= 0.05) %>%
+    filter(rho < -0.2)
+})
+
+correlated.genes.per.pid <- lapply(sig_corr_pairs_pos, function(x){
+  n <- sort(c(table(x$gene1))[c(table(x$gene1)) > 1],decreasing = T)
+  genes <- names(n)
+  return(list(n, genes))
+})
+
+anti.correlated.genes.per.pid <- lapply(sig_corr_pairs_neg, function(x){
+  n <- sort(c(table(x$gene1))[c(table(x$gene1)) > 1],decreasing = T)
+  genes <- names(n)
+  return(list(n, genes))
+})
+
+all.correlated <- c()
+for (i in correlated.genes.per.pid){
+  all.correlated <- c(all.correlated, i[[2]])
+}
+all.correlated <- c(table(all.correlated))
+commonly_correlated_genes <- all.correlated[all.correlated>2]
+
+all.anticorrelated <- c()
+for (i in anti.correlated.genes.per.pid){
+  all.anticorrelated <- c(all.anticorrelated, i[[2]])
+}
+all.anticorrelated <- c(table(all.anticorrelated))
+commonly_anticorrelated_genes <- all.anticorrelated[all.anticorrelated>2]
 
 saveRDS(sig_corr_pairs, "sig_corr_pairs.Rds")
 
@@ -95,6 +129,8 @@ corr <- lapply(df, function(x){
                    y=as.matrix(t(x[rownames(x) %in% persister_genes,])), 
                    method = "spearman")
 })
+
+
 
 corr <- readRDS("correlations_allVsPersister.Rds")
 
@@ -144,7 +180,7 @@ plots <- lapply(corr_filtered, function(x){
     xlim(-0.1,0.1) +
     geom_hline(yintercept = 0) +
     geom_vline(xintercept = 0) +
-    theme_classic()
+    theme_classic() 
 })
 
 lapply(names(plots), function(i){
